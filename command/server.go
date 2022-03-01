@@ -64,7 +64,7 @@ func InitGinServer(ctx context.Context) (*http.Server, error) {
 		return nil, err
 	}
 
-	port := viper.GetString("http.port")
+	port := "8080"
 	httpServer := &http.Server{
 		Addr:         ":" + port,
 		Handler:      router,
@@ -96,5 +96,5 @@ func GinRouter() (*gin.Engine, error) {
 }
 
 func health(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{})
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
