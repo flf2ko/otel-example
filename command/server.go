@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/jaeger"
@@ -23,6 +22,8 @@ import (
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
+
+	customMiddleware "github.com/flf2ko/otel-example/middleware"
 )
 
 var (
@@ -130,7 +131,8 @@ func GinRouter() (*gin.Engine, error) {
 
 	// Init root router group
 	rootGroup := router.Group("")
-	rootGroup.Use(otelgin.Middleware("my-server"))
+	// rootGroup.Use(otelgin.Middleware("my-server"))
+	rootGroup.Use(customMiddleware.Middleware("my-server"))
 
 	// general service for debugging
 	rootGroup.GET("/health", health)
