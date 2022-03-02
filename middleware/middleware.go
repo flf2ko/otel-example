@@ -21,7 +21,7 @@ const (
 // Middleware returns middleware that will trace incoming requests.
 // The service parameter should describe the name of the (virtual)
 // server handling the request.
-func Middleware(service string) gin.HandlerFunc {
+func Middleware(service string, startOpts ...oteltrace.SpanStartOption) gin.HandlerFunc {
 
 	tracer := otel.GetTracerProvider().Tracer(
 		tracerName,
@@ -37,17 +37,24 @@ func Middleware(service string) gin.HandlerFunc {
 			c.Request = c.Request.WithContext(savedCtx)
 		}()
 		ctx := propagators.Extract(savedCtx, propagation.HeaderCarrier(c.Request.Header))
-		opts := []oteltrace.SpanStartOption{
-			// oteltrace.WithAttributes(semconv.NetAttributesFromHTTPRequest("tcp", c.Request)...),
-			oteltrace.WithAttributes(semconv.EndUserAttributesFromHTTPRequest(c.Request)...),
-			oteltrace.WithAttributes(semconv.HTTPServerAttributesFromHTTPRequest(service, c.FullPath(), c.Request)...),
-			oteltrace.WithSpanKind(oteltrace.SpanKindServer),
+
+		// Setup default span start options
+		if len(startOpts) == 0 {
+			startOpts = []oteltrace.SpanStartOption{
+				oteltrace.WithAttributes(semconv.NetAttributesFromHTTPRequest("tcp", c.Request)...),
+				oteltrace.WithAttributes(semconv.EndUserAttributesFromHTTPRequest(c.Request)...),
+				oteltrace.WithAttributes(semconv.HTTPServerAttributesFromHTTPRequest(service, c.FullPath(), c.Request)...),
+				oteltrace.WithSpanKind(oteltrace.SpanKindServer),
+			}
 		}
-		spanName := fmt.Sprintf("%s %s", c.Request.Method, c.FullPath())
-		if spanName == "" {
-			spanName = fmt.Sprintf("HTTP %s route not found", c.Request.Method)
+
+		path := c.FullPath()
+		if path == "" {
+			path = fmt.Sprintf("HTTP %s route not found", c.Request.Method)
 		}
-		ctx, span := tracer.Start(ctx, spanName, opts...)
+		spanName := fmt.Sprintf("%s %s", c.Request.Method, path)
+
+		ctx, span := tracer.Start(ctx, spanName, startOpts...)
 		defer span.End()
 
 		// pass the span through the request context
