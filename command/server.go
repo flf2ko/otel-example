@@ -12,11 +12,23 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/jaeger"
+	otelexporter "go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	tracesdk "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 var (
 	quit      = make(chan os.Signal, 5)
 	systemCtx context.Context
+	tracer    = otel.Tracer("gin-server")
 )
 
 func init() {
@@ -32,6 +44,13 @@ func NewServerCmd() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			defer log.Println("server main thread exiting")
 			log.Println("config path:", serverConfigFile)
+
+			tp := initTracer()
+			defer func() {
+				if err := tp.Shutdown(context.Background()); err != nil {
+					log.Printf("Error shutting down tracer provider: %v", err)
+				}
+			}()
 
 			// Init HTTP server, to provide readiness information at the very beginning
 			httpServer, err := InitGinServer(systemCtx)
@@ -82,19 +101,56 @@ func InitGinServer(ctx context.Context) (*http.Server, error) {
 	return httpServer, nil
 }
 
+func initTracer() *tracesdk.TracerProvider {
+	exporter, err := otelexporter.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint("http://localhost:14268/api/traces")))
+	if err != nil {
+		log.Fatal(err)
+	}
+	tp := tracesdk.NewTracerProvider(
+		// sampler rate with builtin sampler
+		// https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/trace/sdk.md#built-in-samplers
+		tracesdk.WithSampler(tracesdk.AlwaysSample()),
+		// tracesdk.WithIDGenerator(customTracer.GetCIDIDGenerator()),
+		tracesdk.WithBatcher(exporter),
+		tracesdk.WithResource(resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceNameKey.String("otel-example"),
+			attribute.String("environment", "staging"),
+		)),
+	)
+
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+	return tp
+}
+
 func GinRouter() (*gin.Engine, error) {
-	gin.SetMode(viper.GetString("http.mode"))
+	gin.SetMode("debug")
 	router := gin.New()
 
 	// Init root router group
 	rootGroup := router.Group("")
+	rootGroup.Use(otelgin.Middleware("my-server"))
 
 	// general service for debugging
 	rootGroup.GET("/health", health)
+	rootGroup.GET("/users/:id", getUser)
 
 	return router, nil
 }
 
 func health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func getUser(c *gin.Context) {
+	id := c.Param("id")
+	handlerName := c.HandlerName()
+
+	// Pass the built-in `context.Context` object from http.Request to OpenTelemetry APIs
+	// where required. It is available from gin.Context.Request.Context()
+	_, span := tracer.Start(c.Request.Context(), handlerName, oteltrace.WithAttributes(attribute.String("id", id)))
+	defer span.End()
+
+	c.JSON(http.StatusOK, gin.H{"status": id})
 }
