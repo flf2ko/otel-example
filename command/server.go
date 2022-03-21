@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/jaeger"
 	otelexporter "go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/propagation"
@@ -151,8 +153,22 @@ func getUser(c *gin.Context) {
 
 	// Pass the built-in `context.Context` object from http.Request to OpenTelemetry APIs
 	// where required. It is available from gin.Context.Request.Context()
-	_, span := tracer.Start(c.Request.Context(), handlerName, oteltrace.WithAttributes(attribute.String("id", id)))
+	ctx, span := tracer.Start(c.Request.Context(), handlerName, oteltrace.WithAttributes(attribute.String("id", id)))
 	defer span.End()
 
+	count(ctx, 1)
+	count(ctx, 2)
+
 	c.JSON(http.StatusOK, gin.H{"status": id})
+}
+
+func count(ctx context.Context, num int) {
+	_, span := tracer.Start(ctx, "count",
+		oteltrace.WithAttributes(attribute.Int("count", num)),
+	)
+	defer span.End()
+
+	if num == 1 {
+		span.SetStatus(codes.Error, fmt.Sprintf("count error: %d", num))
+	}
 }

@@ -31,4 +31,6 @@ jaeger:
 	-p 14268:14268 \
 	-p 14269:14269 \
 	-p 9411:9411 \
-	jaegertracing/all-in-one:1.31
+	-p 6831:6831 \
+	-p 6832:6832 \
+	jaegertracing/all-in-one:1.32
